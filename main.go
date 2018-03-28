@@ -88,6 +88,10 @@ func main() {
 	// Routing
 	http.HandleFunc("/show", bender.postMsg)
 
-	fmt.Printf("Run HTTP server\n\r")
-	http.ListenAndServe(":8080", nil)
+	httpPort := os.Getenv("PORT")
+	if httpPort == "" {
+		httpPort = "8080"
+	}
+	fmt.Printf("Run HTTP server on port:%v\n\r", httpPort)
+	http.ListenAndServe(":"+httpPort, nil)
 }
