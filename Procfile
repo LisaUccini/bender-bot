@@ -1,1 +1,1 @@
-web: develer-bender-bot
+web: bender-bot
