@@ -1,11 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"net/http"
 	"os"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/develersrl/bender-bot/conf"
@@ -17,17 +17,32 @@ var (
 	cfg = flag.String("config", "./config.toml", "configuration file")
 )
 
-func file_check(bot *slackbot.Bot, channel string, filename string) {
-	for {
-		if bot != nil {
-			text, err := ioutil.ReadFile(filename)
-			if err == nil {
-				bot.Message(channel, string(text))
-				os.Remove(filename)
-			}
-		}
-		time.Sleep(2500 * time.Millisecond)
+type BenderBot struct {
+	Bot     *slackbot.Bot
+	Channel string
+}
+
+type BenderMsg struct {
+	Channel string `json:"channelid"`
+	Name    string `json:"name"`
+	Msg     string `json:"msg"`
+}
+
+func (b *BenderBot) postMsg(rw http.ResponseWriter, request *http.Request) {
+	decoder := json.NewDecoder(request.Body)
+
+	var t BenderMsg
+	err := decoder.Decode(&t)
+
+	if err != nil {
+		panic(err)
 	}
+	fmt.Println(t.Name, t.Msg, t.Channel)
+	channelId := b.Channel
+	if t.Channel != "" {
+		channelId = t.Channel
+	}
+	b.Bot.Message(channelId, string(t.Name+": "+t.Msg))
 }
 
 func main() {
@@ -43,19 +58,13 @@ func main() {
 		token = conf.Bot.SlackToken
 	}
 	fmt.Printf("Token: %s\n\r", token)
-	embedded := os.Getenv("EMBEDDED_CHANNEL_ID")
-	if embedded == "" {
-		embedded = conf.Bot.ChannelID
+	defaultChannel := os.Getenv("CHANNEL_ID")
+	if defaultChannel == "" {
+		defaultChannel = conf.Bot.ChannelID
 	}
-	fmt.Printf("Embedded Channel: %s\n\r", embedded)
-	test_log_file := os.Getenv("TEST_LOG_FILE")
-	if test_log_file == "" {
-		test_log_file = conf.Bot.TestLogFile
-	}
-	fmt.Printf("Test Log File: %s\n\r", test_log_file)
 
+	// Slack Bot filter
 	var opts slackbot.Config
-
 	bot := slackbot.New(token, opts)
 
 	bot.DefaultResponse(func(b *slackbot.Bot, msg *slack.Msg) {
@@ -68,9 +77,17 @@ func main() {
 	//    bot.Message(msg.Channel, "Antani la supercazzola, con scappellamento a destra!")
 	//})
 
-	go file_check(bot, embedded, test_log_file)
+	fmt.Printf("Run Bot server\n\r")
+	go func(b *slackbot.Bot) {
+		if err := b.Start(); err != nil {
+			log.Fatalln(err)
+		}
+	}(bot)
 
-	if err := bot.Start(); err != nil {
-		log.Fatalln(err)
-	}
+	bender := &BenderBot{Bot: bot, Channel: defaultChannel}
+	// Routing
+	http.HandleFunc("/show", bender.postMsg)
+
+	fmt.Printf("Run HTTP server\n\r")
+	http.ListenAndServe(":8080", nil)
 }
